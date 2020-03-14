@@ -1,9 +1,11 @@
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_Sensor.h>
+#include <EEPROM.h>
+#include "Adafruit_Sensor.h"
 #include "Adafruit_BMP3XX.h"
 #include "I2Cdev.h"
 #include "MPU6050.h"
+
 
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
     #include "Wire.h"
@@ -13,6 +15,7 @@
 #define BMP_MISO 12
 #define BMP_MOSI 11
 #define BMP_CS 5
+#define EEPROM_SIZE 1
  
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define OUTPUT_READABLE_ACCELGYRO
@@ -23,11 +26,15 @@ MPU6050 accelgyro(0x69);
 int16_t ax, ay, az;
 float altitude;
 float a_x, a_y, a_z;
+float metersPerFeet = 0.3048;
+int eepromAddress = 1;
 
 
  
 void setup() {
   Serial.begin(115200);
+
+//  EEPROM.begin(EEPROM_SIZE);
     
   #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
         Wire.begin(21,22);
@@ -70,8 +77,12 @@ void loop() {
   Serial.println(" hPa");
  
   Serial.print("Approx. Altitude = ");
-  Serial.print(bmp.readAltitude(SEALEVELPRESSURE_HPA)/0.3048);
+  altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
+  Serial.print(altitude/metersPerFeet); // converted to ft
   Serial.println(" ft");
+  EEPROM.write(eepromAddress, (int)altitude);
+  EEPROM.commit();
+  eepromAddress++;
  
   Serial.println();
   if(accelgyro.getFullScaleAccelRange() == 0) {
