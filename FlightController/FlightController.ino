@@ -1,6 +1,6 @@
 #include <Wire.h>
 #include <SPI.h>
-#include <EEPROM.h>
+#include "EEPROM.h"
 #include "Adafruit_Sensor.h"
 #include "Adafruit_BMP3XX.h"
 #include "I2Cdev.h"
@@ -15,9 +15,9 @@
 #define BMP_MISO 12
 #define BMP_MOSI 11
 #define BMP_CS 5
-#define EEPROM_SIZE 1
+#define EEPROM_SIZE 64
  
-#define SEALEVELPRESSURE_HPA (1013.25)
+#define SEALEVELPRESSURE_HPA (1025.25)
 #define OUTPUT_READABLE_ACCELGYRO
  
 Adafruit_BMP3XX bmp(BMP_CS); 
@@ -27,14 +27,18 @@ int16_t ax, ay, az;
 float altitude;
 float a_x, a_y, a_z;
 float metersPerFeet = 0.3048;
-int eepromAddress = 1;
+int eepromAddress = 0;
 
 
  
 void setup() {
   Serial.begin(115200);
 
-//  EEPROM.begin(EEPROM_SIZE);
+  if (!EEPROM.begin(EEPROM_SIZE))
+  {
+    Serial.println("failed to initialise EEPROM"); 
+    delay(1000000);
+  }
     
   #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
         Wire.begin(21,22);
@@ -51,10 +55,10 @@ void setup() {
   }
 
   Serial.println("Initializing I2C devices...");
-   accelgyro.initialize();
+  accelgyro.initialize();
 
-   Serial.println("Testing device connections...");
-   Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
+  Serial.println("Testing device connections...");
+  Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
   bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_8X);
   bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
   bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
@@ -78,11 +82,9 @@ void loop() {
  
   Serial.print("Approx. Altitude = ");
   altitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
-  Serial.print(altitude/metersPerFeet); // converted to ft
+  Serial.print(altitude); // converted to ft
   Serial.println(" ft");
-  EEPROM.write(eepromAddress, (int)altitude);
-  EEPROM.commit();
-  eepromAddress++;
+ 
  
   Serial.println();
   if(accelgyro.getFullScaleAccelRange() == 0) {
@@ -102,8 +104,7 @@ void loop() {
     a_y = ((float)ay)/2048;
     a_z = ((float)az)/2048;
   }
-  
-
+ 
    #ifdef OUTPUT_READABLE_ACCELGYRO
         // display tab-separated accel/gyro x/y/z values
         Serial.print("a/g:\t");
@@ -111,5 +112,11 @@ void loop() {
         Serial.print(a_y); Serial.print("\t");
         Serial.print(a_z); Serial.print("\t");
     #endif
+  if(eepromAddress == EEPROM_SIZE) {
+    EEPROM.commit();  
+  } else {
+    EEPROM.write(eepromAddress, (int)altitude);
+    eepromAddress++;
+  }
   delay(500);
 }
