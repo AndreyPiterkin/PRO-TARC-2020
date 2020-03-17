@@ -5,6 +5,7 @@
 #include "Adafruit_BMP3XX.h"
 #include "I2Cdev.h"
 #include "MPU6050.h"
+#include "BluetoothSerial.h"
  
 #define BMP_SCK 13
 #define BMP_MISO 12
@@ -17,6 +18,9 @@
  //define the BMP388 (the altimeter) and the MPU6050 (the accelerometer), with the MPU set to AD0 high
 Adafruit_BMP3XX bmp(BMP_CS); 
 MPU6050 accelgyro(0x69); 
+
+//define Bluetooth Serial
+BluetoothSerial SerialBT;
 
 //accelerometer outputs
 int16_t ax, ay, az;
@@ -31,21 +35,30 @@ float metersPerFeet = 0.3048;
 unsigned long initTime;
 unsigned long currTime;
 
+//external activation key
+bool launch = false;
+
 void setup() {
+  //initialize serial port, bluetooth serial and wire
   Serial.begin(115200);
-    
+  if(!SerialBT.begin("PRO ABS Rocket 1.0")) {
+    Serial.println("PRO Flight Controller 1.0 unavailable");
+  }
   Wire.begin(21,22);
+
+  //initializes altimeter
   if (!bmp.begin()) {
     Serial.println("Could not find a valid BMP3 sensor, check wiring!");
     while (1);
   }
+  
   //initializes the SPI file storage system
   if (!SPIFFS.begin(true)) {
     Serial.println("An Error has occurred while mounting SPIFFS");
     return;
   }
 
-  Serial.println("Initializing I2C devices...");
+  //initializes accelerometer over I2C
   accelgyro.initialize();
 
   Serial.println("Testing device connections...");
@@ -78,16 +91,39 @@ void setup() {
   } else {
     Serial.println("File write failed");
   }
+  
   flight1.close();
 }
  
 void loop() {
+  //scan for launch key over bluetooth serial
+  String input;
+  if(!launch && SerialBT.available()) {
+      input = SerialBT.readString();
+      if(input.equals("launch")) {
+        launch = true;
+        SerialBT.println("PRO ABS Flight Controller ready for launch");
+        initTime = millis();
+        bmp.performReading();
+        initAltitude = bmp.readAltitude(SEALEVELPRESSURE_HPA)/metersPerFeet;
+      }
+  }
+
   //open the flight1 file to append data
   File flight1 = SPIFFS.open("/flight1.txt", FILE_APPEND);
   if(!flight1){
       Serial.println("Failed to open file for reading");
       return;
   }
+
+  /*
+  -TODO: Check for rapid acceleration as the start of the flight
+  
+  -TODO: After check, wait 2.5 seconds (motor burn time) before recording data
+  
+  -TODO: "Shifting Gears": When acceleration falls below 8g, set accelerometer full scale range to +/- 8g, when it falls below
+  4g, set full scale range to +/- 4g, etc.
+  */
   
   //take readings for temperature, altitude, and acceleration <x,y,z>
   bmp.performReading();
