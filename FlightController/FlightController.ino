@@ -38,6 +38,10 @@ unsigned long currTime;
 //external activation key
 bool launch = false;
 
+//flight checks
+float accelUp = 0;
+bool motorBurned = false;
+
 void setup() {
   //initialize serial port, bluetooth serial and wire
   Serial.begin(115200);
@@ -65,14 +69,10 @@ void setup() {
   Serial.println(accelgyro.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
 
   //set bmp388 (altimeter) oversampling and data rate
-  bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_2X);
-  bmp.setPressureOversampling(BMP3_OVERSAMPLING_8X);
+  bmp.setTemperatureOversampling(BMP3_NO_OVERSAMPLING);
+  bmp.setPressureOversampling(BMP3_OVERSAMPLING_4X);
   bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_7);
   bmp.setOutputDataRate(BMP3_ODR_200_HZ);
-
-  //take initial altitude reading
-  bmp.performReading();
-  initAltitude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
   maxAltitude = -1000.00;
 
   //set the accelerometer range to +/- 16g
@@ -103,67 +103,81 @@ void loop() {
       if(input.equals("launch")) {
         launch = true;
         SerialBT.println("PRO ABS Flight Controller ready for launch");
-        initTime = millis();
         bmp.performReading();
         initAltitude = bmp.readAltitude(SEALEVELPRESSURE_HPA)/metersPerFeet;
       }
   }
+  //if launch is a go over bluetooth, check for acceleration up (az / a_z), and if its greater than 8 g's
+  if(launch && accelUp > 8.0) {
+    
+    //if motor hasnt burned, then wait 2.5 seconds for motor to burn and set acceleration range to +/- 2g
+    if(!motorBurned) {
+      initTime = millis();
+      delay(2500);
+      motorBurned = true;
+      accelgyro.setFullScaleAccelRange(0);
+    } 
+    
+    //open the flight1 file to append data
+    File flight1 = SPIFFS.open("/flight1.txt", FILE_APPEND);
+    if(!flight1){
+        return;
+    }
+    
+    //take readings for temperature, altitude, and acceleration <x,y,z>
+    bmp.performReading();
+    accelgyro.getAcceleration(&ax, &ay, &az);
+    temp = bmp.temperature;
+    currentAltitude = bmp.readAltitude(SEALEVELPRESSURE_HPA)/metersPerFeet; //altitude in feet
 
-  //open the flight1 file to append data
-  File flight1 = SPIFFS.open("/flight1.txt", FILE_APPEND);
-  if(!flight1){
-      Serial.println("Failed to open file for reading");
-      return;
+    //update the current time, when the readings were taken
+    currTime = millis();
+  
+    //scale the raw acceleration output to represent actual g values for acceleration
+    if(accelgyro.getFullScaleAccelRange() == 0) {
+      a_x = ((float)ax)/16384;
+      a_y = ((float)ay)/16384;
+      a_z = ((float)az)/16384;
+    } else if(accelgyro.getFullScaleAccelRange() == 1) {
+      a_x = ((float)ax)/8192;
+      a_y = ((float)ay)/8192;
+      a_z = ((float)az)/8192;
+    } else if(accelgyro.getFullScaleAccelRange() == 2) {
+      a_x = ((float)ax)/4096;
+      a_y = ((float)ay)/4096;
+      a_z = ((float)az)/4096;
+    } else if(accelgyro.getFullScaleAccelRange() == 3) {
+      a_x = ((float)ax)/2048;
+      a_y = ((float)ay)/2048;
+      a_z = ((float)az)/2048;
+    }
+    //print all values to file
+    flight1.print(currTime-initTime);
+
+    //reset initTime to current time, so in the next loop the value will pickup where it was left off
+    initTime=currTime;
+    
+    flight1.print(" : ");
+    flight1.print(currentAltitude);
+    flight1.print(" : ");
+    flight1.print(temp);
+    flight1.print(" : ");
+    flight1.print(a_x);
+    flight1.print(" : ");
+    flight1.print(a_y);
+    flight1.print(" : ");
+    flight1.print(a_z);
+    flight1.println();
+  
+    flight1.close();
+    delay(50);
+
+  //if launch is or isnt a go, or the acceleration isnt above 8.0 g's, then print and reset the value for accelUp and wait a little longer than usual
+  } else {
+    Serial.println("Detecting launch...");
+    SerialBT.println("Detecting launch...");
+    accelgyro.getAcceleration(&ax, &ay, &az);
+    accelUp = ((float)az)/2048;
+    delay(100);  
   }
-
-  /*
-  -TODO: Check for rapid acceleration as the start of the flight
-  
-  -TODO: After check, wait 2.5 seconds (motor burn time) before recording data
-  
-  -TODO: "Shifting Gears": When acceleration falls below 8g, set accelerometer full scale range to +/- 8g, when it falls below
-  4g, set full scale range to +/- 4g, etc.
-  */
-  
-  //take readings for temperature, altitude, and acceleration <x,y,z>
-  bmp.performReading();
-  accelgyro.getAcceleration(&ax, &ay, &az);
-  temp = bmp.temperature;
-  currentAltitude = bmp.readAltitude(SEALEVELPRESSURE_HPA)/metersPerFeet; //altitude in feet
-
-  if(currentAltitude >= maxAltitude) maxAltitude = currentAltitude; //find cumulative max altitude
-
-  //scale the raw acceleration output to represent actual g values for acceleration
-  if(accelgyro.getFullScaleAccelRange() == 0) {
-    a_x = ((float)ax)/16384;
-    a_y = ((float)ay)/16384;
-    a_z = ((float)az)/16384;
-  } else if(accelgyro.getFullScaleAccelRange() == 1) {
-    a_x = ((float)ax)/8192;
-    a_y = ((float)ay)/8192;
-    a_z = ((float)az)/8192;
-  } else if(accelgyro.getFullScaleAccelRange() == 2) {
-    a_x = ((float)ax)/4096;
-    a_y = ((float)ay)/4096;
-    a_z = ((float)az)/4096;
-  } else if(accelgyro.getFullScaleAccelRange() == 3) {
-    a_x = ((float)ax)/2048;
-    a_y = ((float)ay)/2048;
-    a_z = ((float)az)/2048;
-  }
-
-  //print all values to file
-  flight1.print(currTime-initTime); //TODO: timer to be implemented
-  flight1.print(" : ");
-  flight1.print(currentAltitude);
-  flight1.print(" : ");
-  flight1.print(a_x);
-  flight1.print(" : ");
-  flight1.print(a_y);
-  flight1.print(" : ");
-  flight1.print(a_z);
-  flight1.println();
-
-  flight1.close();
-  delay(5);
 }
