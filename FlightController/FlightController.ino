@@ -106,7 +106,11 @@ void loop() {
         bmp.performReading();
         initAltitude = bmp.readAltitude(SEALEVELPRESSURE_HPA)/metersPerFeet;
       }
+  } else {
+    SerialBT.println("Detecting launch...");
   }
+
+  
   //if launch is a go over bluetooth, check for acceleration up (az / a_z), and if its greater than 8 g's
   if(launch && accelUp > 8.0) {
     
@@ -174,8 +178,8 @@ void loop() {
 
   //if launch is or isnt a go, or the acceleration isnt above 8.0 g's, then print and reset the value for accelUp and wait a little longer than usual
   } else {
-    Serial.println("Detecting launch...");
-    SerialBT.println("Detecting launch...");
+    Serial.println("Detecting acceleration...");
+    SerialBT.println("Detecting acceleration...");
     accelgyro.getAcceleration(&ax, &ay, &az);
     accelUp = ((float)az)/2048;
     delay(100);  
